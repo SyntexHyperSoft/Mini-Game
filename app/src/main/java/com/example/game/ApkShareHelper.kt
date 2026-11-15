@@ -18,7 +18,7 @@ object ApkShareHelper {
   private const val APK_NAME = "CosmicBattle.apk"
 
   /**
-   * Shares the installed APK file via Android share sheet (Telegram, WhatsApp, Drive, Quick Share, etc.)
+   * Shares the installed APK file via Android share sheet (Android 8.1 - 17 compatible).
    */
   fun shareApk(context: Context) {
     try {
@@ -49,14 +49,20 @@ object ApkShareHelper {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
       }
 
-      context.startActivity(Intent.createChooser(shareIntent, "Поделиться игрой Cosmic Battle (APK)"))
+      context.startActivity(
+        Intent.createChooser(shareIntent, "Поделиться игрой Cosmic Battle (APK)").apply {
+          if (context !is android.app.Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+        }
+      )
     } catch (e: Exception) {
       Toast.makeText(context, "Ошибка отправки APK: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
     }
   }
 
   /**
-   * Saves the APK file directly to the device's Downloads directory so the user or anyone can install/copy it.
+   * Saves the APK file directly to Downloads on Android 10+ (MediaStore) or legacy Downloads/app storage on Android 8.1-9.
    */
   fun saveApkToDownloads(context: Context) {
     try {
@@ -87,16 +93,30 @@ object ApkShareHelper {
           Toast.makeText(context, "Не удалось сохранить в Загрузки", Toast.LENGTH_SHORT).show()
         }
       } else {
-        @Suppress("DEPRECATION")
-        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        if (!downloadsDir.exists()) downloadsDir.mkdirs()
-        val destFile = File(downloadsDir, APK_NAME)
-        FileInputStream(sourceApk).use { input ->
-          FileOutputStream(destFile).use { output ->
-            input.copyTo(output)
+        // Android 8.1 / 9: try public Downloads first, gracefully fall back to app external Downloads if needed
+        val destFile = try {
+          @Suppress("DEPRECATION")
+          val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+          if (!publicDownloads.exists()) publicDownloads.mkdirs()
+          val candidate = File(publicDownloads, APK_NAME)
+          FileInputStream(sourceApk).use { input ->
+            FileOutputStream(candidate).use { output ->
+              input.copyTo(output)
+            }
           }
+          candidate
+        } catch (_: SecurityException) {
+          val appDownloads = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+          if (!appDownloads.exists()) appDownloads.mkdirs()
+          val fallbackFile = File(appDownloads, APK_NAME)
+          FileInputStream(sourceApk).use { input ->
+            FileOutputStream(fallbackFile).use { output ->
+              input.copyTo(output)
+            }
+          }
+          fallbackFile
         }
-        Toast.makeText(context, "APK сохранён в Загрузки: ${destFile.absolutePath}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "APK сохранён: ${destFile.name}", Toast.LENGTH_LONG).show()
       }
     } catch (e: Exception) {
       Toast.makeText(context, "Ошибка сохранения APK: ${e.localizedMessage}", Toast.LENGTH_LONG).show()

@@ -3,7 +3,6 @@ package com.example.game
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
@@ -13,6 +12,8 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.JsPromptResult
+import android.webkit.JsResult
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -26,48 +27,61 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.LockClock
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.AlertDialog
@@ -78,7 +92,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -93,18 +106,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -114,8 +129,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Share
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.ui.theme.AlertRed
 import com.example.ui.theme.CosmicDark
@@ -139,6 +155,7 @@ fun CosmicBattleScreen(
 ) {
   val context = LocalContext.current
   val activity = context as? Activity
+  val lifecycleOwner = LocalLifecycleOwner.current
   val gamePreferences = remember { GamePreferences(context) }
 
   var webViewInstance by remember { mutableStateOf<WebView?>(null) }
@@ -155,111 +172,23 @@ fun CosmicBattleScreen(
   var isKeepScreenOn by remember { mutableStateOf(gamePreferences.isKeepScreenOn) }
   var isImmersive by remember { mutableStateOf(gamePreferences.isImmersive) }
   var isNotificationsEnabled by remember { mutableStateOf(gamePreferences.isNotificationsEnabled) }
-  var isAutoUpdateEnabled by remember { mutableStateOf(gamePreferences.isAutoUpdateEnabled) }
-
-  val coroutineScope = rememberCoroutineScope()
-
-  // In-App Update States
-  var isCheckingUpdate by remember { mutableStateOf(false) }
-  var updateCheckStatus by remember { mutableStateOf<String?>(null) }
-  var availableUpdate by remember { mutableStateOf<AppUpdateManager.UpdateInfo?>(null) }
-  var showUpdateNoticeDialog by remember { mutableStateOf(false) }
-  var isDownloadingUpdate by remember { mutableStateOf(false) }
-  var downloadProgressPercent by remember { mutableIntStateOf(0) }
-  var downloadProgressBytes by remember { mutableStateOf(0L to 0L) }
-  var downloadStatusText by remember { mutableStateOf("Загрузка обновления...") }
-  var downloadError by remember { mutableStateOf<String?>(null) }
-
-  fun startUpdateDownload(downloadUrl: String, inBackground: Boolean = false) {
-    if (!inBackground) {
-      isDownloadingUpdate = true
-    }
-    downloadProgressPercent = 0
-    downloadProgressBytes = 0L to 0L
-    downloadStatusText = "Подключение к серверу загрузки..."
-    downloadError = null
-
-    coroutineScope.launch {
-      val versionStr = availableUpdate?.latestVersion ?: AndroidBridge.CURRENT_VERSION
-      NotificationHelper.sendUpdateProgressNotification(context, versionStr, 0)
-
-      AppUpdateManager.downloadApk(
-        context = context,
-        downloadUrl = downloadUrl,
-        onProgress = { progress ->
-          when (progress) {
-            is AppUpdateManager.DownloadProgress.Progress -> {
-              downloadProgressPercent = progress.percent
-              downloadProgressBytes = progress.downloadedBytes to progress.totalBytes
-              downloadStatusText = "Скачивание файла обновления (${progress.percent}%)..."
-              NotificationHelper.sendUpdateProgressNotification(context, versionStr, progress.percent)
-            }
-            is AppUpdateManager.DownloadProgress.Completed -> {
-              downloadProgressPercent = 100
-              downloadStatusText = "Загрузка завершена (100%)! Запуск установщика..."
-              NotificationHelper.sendUpdateReadyNotification(context, versionStr, progress.apkFile)
-              coroutineScope.launch {
-                delay(400)
-                val success = AppUpdateManager.installApk(context, progress.apkFile)
-                if (!success) {
-                  downloadError = "Не удалось открыть установщик. Разрешите установку приложений в настройках."
-                }
-              }
-            }
-            is AppUpdateManager.DownloadProgress.Failed -> {
-              downloadError = progress.error
-              downloadStatusText = "Ошибка: ${progress.error}"
-            }
-          }
-        }
-      )
-    }
-  }
-
-  fun performCheckForUpdates(showFeedbackIfNoUpdate: Boolean = false) {
-    if (isCheckingUpdate) return
-    isCheckingUpdate = true
-    updateCheckStatus = "Поиск обновлений..."
-    coroutineScope.launch {
-      val result = AppUpdateManager.checkForUpdates(AndroidBridge.CURRENT_VERSION, gamePreferences.githubRepo)
-      isCheckingUpdate = false
-      when (result) {
-        is AppUpdateManager.UpdateCheckResult.Success -> {
-          availableUpdate = result.updateInfo
-          updateCheckStatus = "🔥 Найдена новая версия: ${result.updateInfo.latestVersion}"
-          if (isAutoUpdateEnabled) {
-            // Auto-update silently in the background
-            startUpdateDownload(result.updateInfo.downloadUrl, inBackground = true)
-          } else {
-            showUpdateNoticeDialog = true
-          }
-        }
-        is AppUpdateManager.UpdateCheckResult.NoUpdate -> {
-          availableUpdate = null
-          updateCheckStatus = "У вас установлена последняя версия (v${AndroidBridge.CURRENT_VERSION})"
-          if (showFeedbackIfNoUpdate) {
-            Toast.makeText(context, "У вас установлена самая новая версия игры (v${AndroidBridge.CURRENT_VERSION})", Toast.LENGTH_SHORT).show()
-          }
-        }
-        is AppUpdateManager.UpdateCheckResult.Error -> {
-          updateCheckStatus = result.message
-          if (showFeedbackIfNoUpdate) {
-            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-          }
-        }
-      }
-    }
-  }
-
-  // Automatic silent update check on startup (runs after 2.5s)
-  LaunchedEffect(Unit) {
-    delay(2500)
-    performCheckForUpdates(showFeedbackIfNoUpdate = false)
-  }
+  var isLowGraphics by remember { mutableStateOf(gamePreferences.isLowGraphics) }
+  var feGameXEngineMode by remember { mutableStateOf(gamePreferences.feGameXEngineMode) }
+  var isFeastOptimizing by remember { mutableStateOf(false) }
 
   // Custom Fullscreen View support (WebChromeClient)
   var customView by remember { mutableStateOf<View?>(null) }
   var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+
+  // Safety timeout for FeastOptimizingService overlay in case WebView navigates/reloads mid-launch
+  LaunchedEffect(isFeastOptimizing) {
+    if (isFeastOptimizing) {
+      GamePerformanceOptimizer.prepareFeastGameLaunch(activity, currentFps)
+      delay(4800)
+      isFeastOptimizing = false
+      GamePerformanceOptimizer.updateGameState(context, isPlaying = true, isLoading = false)
+    }
+  }
 
   // Notification permission launcher for Android 13+ (API 33+)
   val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -279,34 +208,54 @@ fun CosmicBattleScreen(
     }
   }
 
-  // Universal Anti-Hang Watchdog (Samsung One UI, Xiaomi, Pixel):
-  // 1. Ensures the loading splash NEVER freezes or blocks the game.
-  // 2. Automatically skips the 5.5s intro if it gets stuck, launching directly into the menu.
+  // Loading splash dismiss + safety unstick watchdog (only triggers if video genuinely failed/stalled)
   LaunchedEffect(reloadTrigger) {
     NotificationHelper.createNotificationChannel(context)
-    delay(300)
+    delay(220)
     isLoading = false
 
-    // Skip intro if still visible after 1.2s to guarantee smooth game launch
-    delay(900)
+    delay(4500)
     webViewInstance?.evaluateJavascript(
       """
       (function() {
         try {
-          if (typeof skipIntroNow === 'function') {
-            skipIntroNow();
-          } else {
-            var intro = document.getElementById('intro');
-            if (intro && !intro.classList.contains('hidden')) {
-              intro.classList.add('hidden');
-              if (typeof showMenu === 'function') showMenu();
-            }
+          if (typeof window.__finishIntroIfStalled === 'function') {
+            window.__finishIntroIfStalled();
           }
         } catch(e) {}
       })();
       """.trimIndent(),
       null
     )
+  }
+
+  // Android 8.1 - 17 WebView lifecycle & background audio hardening
+  DisposableEffect(lifecycleOwner, webViewInstance) {
+    val observer = LifecycleEventObserver { _, event ->
+      val wv = webViewInstance ?: return@LifecycleEventObserver
+      when (event) {
+        Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+          wv.onPause()
+          wv.evaluateJavascript(
+            "(function(){try{if(typeof window.__onAndroidAppPause==='function')window.__onAndroidAppPause();}catch(e){}})();",
+            null
+          )
+        }
+        Lifecycle.Event.ON_RESUME -> {
+          wv.onResume()
+          GamePerformanceOptimizer.applyFeGameXMode(
+            activity,
+            wv,
+            gamePreferences.feGameXEngineMode
+          )
+        }
+        else -> Unit
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose {
+      lifecycleOwner.lifecycle.removeObserver(observer)
+    }
   }
 
   // Handle keep screen on
@@ -344,13 +293,26 @@ fun CosmicBattleScreen(
     }
   }
 
-  // Handle Android Back Navigation
+  // Handle Android Back Navigation (API 27 - API 37 BackHandler / Predictive Back)
   BackHandler(enabled = true) {
     val wv = webViewInstance
     if (customView != null) {
       customViewCallback?.onCustomViewHidden()
-    } else if (wv != null && wv.canGoBack()) {
-      wv.goBack()
+    } else if (wv != null) {
+      wv.evaluateJavascript(
+        """
+        (function() {
+          if (typeof window.handleAndroidBack === 'function') {
+            return window.handleAndroidBack();
+          }
+          return false;
+        })();
+        """.trimIndent()
+      ) { result ->
+        if (result != "true") {
+          showExitDialog = true
+        }
+      }
     } else {
       showExitDialog = true
     }
@@ -368,7 +330,6 @@ fun CosmicBattleScreen(
       .fillMaxSize()
       .background(CosmicDark)
   ) {
-    // Custom View for HTML5 Fullscreen (if game triggers it)
     if (customView != null) {
       AndroidView(
         factory = {
@@ -383,182 +344,259 @@ fun CosmicBattleScreen(
         modifier = Modifier.fillMaxSize()
       )
     } else {
-      // Main WebView container
       androidx.compose.runtime.key(reloadTrigger) {
         AndroidView(
           modifier = Modifier
             .fillMaxSize()
             .testTag("game_webview"),
           factory = { ctx ->
-          WebView(ctx).apply {
-            layoutParams = ViewGroup.LayoutParams(
-              ViewGroup.LayoutParams.MATCH_PARENT,
-              ViewGroup.LayoutParams.MATCH_PARENT
-            )
+            // Synchronize Chromium command-line flags BEFORE creating WebView
+            val initialEngineMode = gamePreferences.feGameXEngineMode
+            GamePerformanceOptimizer.applyChromiumCommandLineFlags(initialEngineMode)
 
-            // Cosmic dark background: NEVER flashes white on render/redraw
-            setBackgroundColor(android.graphics.Color.parseColor("#030308"))
-            setLayerType(View.LAYER_TYPE_HARDWARE, null)
-            GamePerformanceOptimizer.optimizeWebView(this)
-            isFocusable = true
-            isFocusableInTouchMode = true
-            requestFocus()
+            WebView(ctx).apply {
+              layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+              )
 
-            // Setup Cookies & Local Storage persistence
-            val cookieManager = CookieManager.getInstance()
-            cookieManager.setAcceptCookie(true)
-            cookieManager.setAcceptThirdPartyCookies(this, true)
+              setBackgroundColor(android.graphics.Color.parseColor("#030308"))
+              GamePerformanceOptimizer.optimizeWebView(this, initialEngineMode)
+              isFocusable = true
+              isFocusableInTouchMode = true
+              requestFocus()
 
-            // Native Android Bridge for haptic vibrations and device capabilities
-            val bridge = AndroidBridge(ctx).apply {
-              setOnCheckUpdatesListener {
-                (ctx as? Activity)?.runOnUiThread {
-                  showSettingsDialog = true
-                  performCheckForUpdates(showFeedbackIfNoUpdate = true)
+              val cookieManager = CookieManager.getInstance()
+              cookieManager.setAcceptCookie(true)
+              cookieManager.setAcceptThirdPartyCookies(this, true)
+
+              val gameWebView = this
+              val bridge = AndroidBridge(ctx).apply {
+                setOnOpenSettingsListener {
+                  (ctx as? Activity)?.runOnUiThread {
+                    showSettingsDialog = true
+                  }
                 }
-              }
-            }
-            addJavascriptInterface(bridge, "AndroidBridge")
-
-            // WebSettings configuration tuned for ALL devices & Android versions (Android 7 - 16)
-            settings.apply {
-              javaScriptEnabled = true
-              domStorageEnabled = true // HTML5 LocalStorage & SessionStorage persistence
-              databaseEnabled = true // IndexedDB & WebSQL persistence
-              cacheMode = WebSettings.LOAD_DEFAULT // Fast local disk asset caching
-              allowFileAccess = true
-              allowContentAccess = true
-              allowFileAccessFromFileURLs = true
-              allowUniversalAccessFromFileURLs = true
-              mediaPlaybackRequiresUserGesture = false // Game sounds play without gesture block
-              useWideViewPort = true
-              loadWithOverviewMode = true
-              builtInZoomControls = false
-              displayZoomControls = false
-              setSupportZoom(false) // Passes all touches directly to game canvas
-              mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-              loadsImagesAutomatically = true
-              blockNetworkImage = false
-
-              // Critical fix for Samsung One UI & Android 10+:
-              // Prevents system Dark Mode from inverting dark HTML canvas to white!
-              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                forceDark = WebSettings.FORCE_DARK_OFF
-              }
-
-              // Fix text zooming on devices with custom DPI / font scaling
-              textZoom = 100
-
-              // Safe browsing can hang on github.io on some mobile networks
-              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                safeBrowsingEnabled = false
-              }
-              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                offscreenPreRaster = true
-              }
-
-              // Clean standard Chrome mobile User-Agent (avoids restrictions triggered by "; wv")
-              val defaultUa = userAgentString
-              if (defaultUa.contains("; wv")) {
-                userAgentString = defaultUa.replace("; wv", "").replace("Version/4.0 ", "")
-              }
-            }
-
-            webChromeClient = object : WebChromeClient() {
-              override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                loadingProgress = newProgress
-                if (newProgress >= 85) {
-                  isLoading = false
+                setOnFpsLimitListener { fps ->
+                  (ctx as? Activity)?.runOnUiThread {
+                    currentFps = fps
+                    gamePreferences.fpsLimit = fps
+                    gamePreferences.applyFpsSettings(activity, gameWebView)
+                  }
                 }
-              }
-
-              override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                consoleMessage?.let {
-                  Log.d(TAG, "[WebView Console] ${it.message()} -- line ${it.lineNumber()}")
+                setOnLowGraphicsListener { enabled ->
+                  (ctx as? Activity)?.runOnUiThread {
+                    isLowGraphics = enabled
+                    gamePreferences.isLowGraphics = enabled
+                  }
                 }
-                return true
-              }
-
-              override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                customView = view
-                customViewCallback = callback
-              }
-
-              override fun onHideCustomView() {
-                customView = null
-                customViewCallback = null
-              }
-            }
-
-            webViewClient = object : WebViewClient() {
-              override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                super.onPageStarted(view, url, favicon)
-                hasError = false
-              }
-
-              // As soon as the first frame renders, dismiss loading immediately!
-              override fun onPageCommitVisible(view: WebView?, url: String?) {
-                super.onPageCommitVisible(view, url)
-                isLoading = false
-                injectPageEnhancements(view, activity, gamePreferences)
-              }
-
-              override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                isLoading = false
-                CookieManager.getInstance().flush()
-                injectPageEnhancements(view, activity, gamePreferences)
-              }
-
-              // Robust renderer recovery: if OS kills renderer due to low RAM on any phone, reload cleanly
-              override fun onRenderProcessGone(
-                view: WebView?,
-                detail: RenderProcessGoneDetail?
-              ): Boolean {
-                Log.w(TAG, "WebView RenderProcessGone! Did crash: ${detail?.didCrash()}")
-                view?.destroy()
-                webViewInstance = null
-                reloadTrigger++
-                return true
-              }
-
-              override fun onReceivedError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?
-              ) {
-                super.onReceivedError(view, request, error)
-                if (request?.isForMainFrame == true) {
-                  // Only treat real fatal failures as error
-                  val code = error?.errorCode ?: 0
-                  if (code != ERROR_FILE_NOT_FOUND) {
-                    hasError = true
-                    isLoading = false
-                    errorMessage = error?.description?.toString() ?: "Network Connection Error"
+                setOnImmersiveListener { enabled ->
+                  (ctx as? Activity)?.runOnUiThread {
+                    isImmersive = enabled
+                    gamePreferences.isImmersive = enabled
+                  }
+                }
+                setOnKeepScreenOnListener { enabled ->
+                  (ctx as? Activity)?.runOnUiThread {
+                    isKeepScreenOn = enabled
+                    gamePreferences.isKeepScreenOn = enabled
+                  }
+                }
+                setOnNotificationsListener { enabled ->
+                  (ctx as? Activity)?.runOnUiThread {
+                    isNotificationsEnabled = enabled
+                    gamePreferences.isNotificationsEnabled = enabled
+                  }
+                }
+                setOnShareApkListener {
+                  (ctx as? Activity)?.runOnUiThread {
+                    ApkShareHelper.shareApk(ctx)
+                  }
+                }
+                setOnDownloadApkListener {
+                  (ctx as? Activity)?.runOnUiThread {
+                    ApkShareHelper.saveApkToDownloads(ctx)
+                  }
+                }
+                setOnRenderEngineListener { mode ->
+                  val normalized = GamePreferences.normalizeEngineMode(mode)
+                  (ctx as? Activity)?.runOnUiThread {
+                    feGameXEngineMode = normalized
+                    gamePreferences.feGameXEngineMode = normalized
+                    GamePerformanceOptimizer.applyFeGameXMode(activity, gameWebView, normalized)
+                  }
+                }
+                setOnGameplayStateListener { isPlaying ->
+                  GamePerformanceOptimizer.updateGameState(ctx, isPlaying, isLoading = false)
+                }
+                setOnFeastOptimizationListener { active ->
+                  (ctx as? Activity)?.runOnUiThread {
+                    isFeastOptimizing = active
+                    if (active) {
+                      GamePerformanceOptimizer.prepareFeastGameLaunch(activity, currentFps)
+                    } else {
+                      GamePerformanceOptimizer.updateGameState(ctx, isPlaying = true, isLoading = false)
+                    }
                   }
                 }
               }
+              addJavascriptInterface(bridge, "AndroidBridge")
 
-              override fun shouldOverrideUrlLoading(
-                view: WebView?,
-                request: WebResourceRequest?
-              ): Boolean {
-                return false
+              @Suppress("DEPRECATION")
+              settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                cacheMode = WebSettings.LOAD_DEFAULT
+                allowFileAccess = true
+                allowContentAccess = true
+                allowFileAccessFromFileURLs = true
+                allowUniversalAccessFromFileURLs = true
+                mediaPlaybackRequiresUserGesture = false
+                useWideViewPort = true
+                loadWithOverviewMode = false
+                builtInZoomControls = false
+                displayZoomControls = false
+                setSupportZoom(false)
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                loadsImagesAutomatically = true
+                blockNetworkImage = false
+
+                // Prevent OS Dark Mode from inverting game canvas on Android 10 - Android 17
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                  isAlgorithmicDarkeningAllowed = false
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                  forceDark = WebSettings.FORCE_DARK_OFF
+                }
+
+                textZoom = 100
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                  safeBrowsingEnabled = false
+                }
+
+                val defaultUa = userAgentString
+                if (defaultUa.contains("; wv")) {
+                  userAgentString = defaultUa.replace("; wv", "").replace("Version/4.0 ", "")
+                }
               }
+
+              webChromeClient = object : WebChromeClient() {
+                // Prevent ugly gray play icon flash before intro.mp4 renders first frame
+                override fun getDefaultVideoPoster(): Bitmap {
+                  return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).apply {
+                    eraseColor(android.graphics.Color.BLACK)
+                  }
+                }
+
+                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                  loadingProgress = newProgress
+                  if (newProgress >= 90) {
+                    isLoading = false
+                  }
+                }
+
+                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                  consoleMessage?.let {
+                    Log.d(TAG, "[WebView] ${it.message()} (line ${it.lineNumber()})")
+                  }
+                  return true
+                }
+
+                override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                  customView = view
+                  customViewCallback = callback
+                }
+
+                override fun onHideCustomView() {
+                  customView = null
+                  customViewCallback = null
+                }
+
+                override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                  result?.confirm()
+                  return true
+                }
+
+                override fun onJsConfirm(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                  result?.confirm()
+                  return true
+                }
+
+                override fun onJsPrompt(view: WebView?, url: String?, message: String?, defaultValue: String?, result: JsPromptResult?): Boolean {
+                  result?.confirm(defaultValue ?: "")
+                  return true
+                }
+              }
+
+              webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                  super.onPageStarted(view, url, favicon)
+                  hasError = false
+                }
+
+                override fun onPageCommitVisible(view: WebView?, url: String?) {
+                  super.onPageCommitVisible(view, url)
+                  isLoading = false
+                  injectPageEnhancements(view, activity, gamePreferences)
+                }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                  super.onPageFinished(view, url)
+                  isLoading = false
+                  CookieManager.getInstance().flush()
+                  activity?.let { act ->
+                    GamePerformanceOptimizer.refreshHintSessionThreads(act, gamePreferences.fpsLimit)
+                  }
+                  GamePerformanceOptimizer.applyWebViewFrameRate(view, gamePreferences.fpsLimit)
+                  injectPageEnhancements(view, activity, gamePreferences)
+                }
+
+                override fun onRenderProcessGone(
+                  view: WebView?,
+                  detail: RenderProcessGoneDetail?
+                ): Boolean {
+                  Log.w(TAG, "WebView RenderProcessGone! Did crash: ${detail?.didCrash()}")
+                  view?.destroy()
+                  webViewInstance = null
+                  reloadTrigger++
+                  return true
+                }
+
+                override fun onReceivedError(
+                  view: WebView?,
+                  request: WebResourceRequest?,
+                  error: WebResourceError?
+                ) {
+                  super.onReceivedError(view, request, error)
+                  if (request?.isForMainFrame == true) {
+                    val code = error?.errorCode ?: 0
+                    if (code != ERROR_FILE_NOT_FOUND) {
+                      hasError = true
+                      isLoading = false
+                      errorMessage = error?.description?.toString() ?: "Load Error"
+                    }
+                  }
+                }
+
+                override fun shouldOverrideUrlLoading(
+                  view: WebView?,
+                  request: WebResourceRequest?
+                ): Boolean {
+                  return false
+                }
+              }
+
+              loadUrl(GAME_URL)
+              webViewInstance = this
             }
-
-            loadUrl(GAME_URL)
-            webViewInstance = this
+          },
+          update = { webView ->
+            webViewInstance = webView
           }
-        },
-        update = { webView ->
-          webViewInstance = webView
-        }
-      )
+        )
+      }
     }
-  }
 
-    // Top Neon Loading Progress Indicator
     if (isLoading && !hasError) {
       LinearProgressIndicator(
         progress = { (loadingProgress.coerceAtLeast(10)) / 100f },
@@ -571,34 +609,24 @@ fun CosmicBattleScreen(
       )
     }
 
-    // Splash / Initial Loading Overlay with Skip Button
     AnimatedVisibility(
       visible = isLoading && !hasError,
       enter = fadeIn(),
       exit = fadeOut(animationSpec = tween(durationMillis = 250)),
       modifier = Modifier.fillMaxSize()
     ) {
-      CosmicLoadingOverlay(
-        progress = loadingProgress,
-        onSkip = {
-          isLoading = false
-          webViewInstance?.let { wv ->
-            wv.evaluateJavascript(
-              """
-              (function() {
-                var intro = document.getElementById('intro');
-                if (intro) { intro.classList.add('hidden'); }
-                if (typeof showMenu === 'function') { showMenu(); }
-              })();
-              """.trimIndent(),
-              null
-            )
-          }
-        }
-      )
+      CosmicLoadingOverlay(progress = loadingProgress)
     }
 
-    // Error Overlay if offline / failed to load
+    AnimatedVisibility(
+      visible = isFeastOptimizing && !hasError,
+      enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+      exit = fadeOut(animationSpec = tween(durationMillis = 260)),
+      modifier = Modifier.fillMaxSize()
+    ) {
+      FeastOptimizingOverlay(engineMode = feGameXEngineMode)
+    }
+
     if (hasError) {
       CosmicErrorOverlay(
         errorMessage = errorMessage,
@@ -610,42 +638,33 @@ fun CosmicBattleScreen(
       )
     }
 
-    // Floating HUD Settings Button (sleek, semi-transparent, unobtrusive)
-    Box(
-      modifier = Modifier
-        .align(Alignment.TopEnd)
-        .padding(top = 16.dp, end = 12.dp)
-    ) {
-      IconButton(
-        onClick = { showSettingsDialog = true },
-        modifier = Modifier
-          .size(40.dp)
-          .clip(CircleShape)
-          .background(CosmicSurface.copy(alpha = 0.75f))
-          .border(1.dp, NeonCyan.copy(alpha = 0.4f), CircleShape)
-          .testTag("floating_menu_button")
-      ) {
-        Icon(
-          imageVector = Icons.Default.Settings,
-          contentDescription = "Cosmic Settings",
-          tint = NeonCyan,
-          modifier = Modifier.size(20.dp)
-        )
-      }
-    }
-
-    // Full Game Settings Dialog
     if (showSettingsDialog) {
       CosmicSettingsDialog(
         currentFps = currentFps,
+        feGameXEngineMode = feGameXEngineMode,
         isImmersive = isImmersive,
         isKeepScreenOn = isKeepScreenOn,
         isNotificationsEnabled = isNotificationsEnabled,
+        isLowGraphics = isLowGraphics,
+        onSelectEngineMode = { mode ->
+          val normalized = GamePreferences.normalizeEngineMode(mode)
+          feGameXEngineMode = normalized
+          gamePreferences.feGameXEngineMode = normalized
+          GamePerformanceOptimizer.applyFeGameXMode(activity, webViewInstance, normalized)
+          gamePreferences.syncFeGameXEngineToWebView(webViewInstance)
+          val msg = if (normalized == GamePreferences.ENGINE_CPU) {
+            "FeGameX CPU: disable-gpu-rasterization включён"
+          } else {
+            "FeGameX GPU: ignore-gpu-blocklist + Vulkan включён"
+          }
+          Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        },
         onSelectFps = { fps ->
           currentFps = fps
           gamePreferences.fpsLimit = fps
           gamePreferences.applyFpsSettings(activity, webViewInstance)
-          Toast.makeText(context, "FPS лимит: $fps FPS", Toast.LENGTH_SHORT).show()
+          val toastMsg = if (fps == 0) "FPS: MAX (без ограничений)" else "FPS лимит: $fps FPS"
+          Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
         },
         onToggleImmersive = {
           val newVal = !isImmersive
@@ -661,17 +680,15 @@ fun CosmicBattleScreen(
           val newVal = !isNotificationsEnabled
           isNotificationsEnabled = newVal
           gamePreferences.isNotificationsEnabled = newVal
-          if (newVal) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-              if (ContextCompat.checkSelfPermission(
-                  context,
-                  Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-              ) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-              } else {
-                Toast.makeText(context, "Уведомления активны", Toast.LENGTH_SHORT).show()
-              }
+          if (newVal && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+              ) != PackageManager.PERMISSION_GRANTED
+            ) {
+              notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+              Toast.makeText(context, "Уведомления активны", Toast.LENGTH_SHORT).show()
             }
           }
         },
@@ -696,24 +713,16 @@ fun CosmicBattleScreen(
             }
           }
         },
-        isAutoUpdateEnabled = isAutoUpdateEnabled,
-        onToggleAutoUpdate = {
-          val newVal = !isAutoUpdateEnabled
-          isAutoUpdateEnabled = newVal
-          gamePreferences.isAutoUpdateEnabled = newVal
+        onToggleLowGraphics = {
+          val newVal = !isLowGraphics
+          isLowGraphics = newVal
+          gamePreferences.isLowGraphics = newVal
+          gamePreferences.applyLowGraphicsSettings(webViewInstance)
           Toast.makeText(
             context,
-            if (newVal) "Автообновление в фоне включено" else "Автообновление в фоне отключено",
+            if (newVal) "Низкая графика включена (Blur отключен)" else "Низкая графика выключена",
             Toast.LENGTH_SHORT
           ).show()
-        },
-        availableUpdate = availableUpdate,
-        isCheckingUpdate = isCheckingUpdate,
-        updateCheckStatus = updateCheckStatus,
-        onCheckUpdates = { performCheckForUpdates(showFeedbackIfNoUpdate = true) },
-        onStartUpdate = { url ->
-          showSettingsDialog = false
-          startUpdateDownload(url)
         },
         onReload = {
           showSettingsDialog = false
@@ -729,196 +738,6 @@ fun CosmicBattleScreen(
       )
     }
 
-    // In-App Update Notice Dialog (Prompts user when new version found)
-    if (showUpdateNoticeDialog && availableUpdate != null) {
-      val update = availableUpdate!!
-      AlertDialog(
-        onDismissRequest = { showUpdateNoticeDialog = false },
-        containerColor = CosmicSurface,
-        shape = RoundedCornerShape(18.dp),
-        title = {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-              imageVector = Icons.Default.RocketLaunch,
-              contentDescription = null,
-              tint = GlowGreen,
-              modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-              text = "Доступно обновление!",
-              color = StarWhite,
-              fontWeight = FontWeight.Bold,
-              fontSize = 17.sp
-            )
-          }
-        },
-        text = {
-          Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-              text = "Вышла новая версия ${update.latestVersion} игры Cosmic Battle (текущая: ${update.currentVersion}).",
-              color = StarSilver,
-              fontSize = 13.sp
-            )
-            if (update.changelog.isNotBlank()) {
-              Card(
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = CosmicDark.copy(alpha = 0.8f)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CosmicSurfaceVariant),
-                modifier = Modifier.fillMaxWidth()
-              ) {
-                Text(
-                  text = update.changelog,
-                  color = StarWhite,
-                  fontSize = 12.sp,
-                  modifier = Modifier.padding(10.dp)
-                )
-              }
-            }
-          }
-        },
-        confirmButton = {
-          Button(
-            onClick = {
-              showUpdateNoticeDialog = false
-              startUpdateDownload(update.downloadUrl)
-            },
-            colors = ButtonDefaults.buttonColors(
-              containerColor = GlowGreen,
-              contentColor = CosmicDark
-            ),
-            modifier = Modifier.testTag("notice_update_button")
-          ) {
-            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Обновить", fontWeight = FontWeight.Bold)
-          }
-        },
-        dismissButton = {
-          TextButton(
-            onClick = { showUpdateNoticeDialog = false },
-            modifier = Modifier.testTag("notice_later_button")
-          ) {
-            Text("Позже", color = StarSilver)
-          }
-        }
-      )
-    }
-
-    // In-App Download Progress Bar & Auto-Install Dialog
-    if (isDownloadingUpdate) {
-      AlertDialog(
-        onDismissRequest = {
-          if (downloadError != null || downloadProgressPercent == 100) {
-            isDownloadingUpdate = false
-          }
-        },
-        containerColor = CosmicSurface,
-        shape = RoundedCornerShape(18.dp),
-        title = {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-              imageVector = Icons.Default.Download,
-              contentDescription = null,
-              tint = NeonCyan,
-              modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-              text = "Обновление Cosmic Battle",
-              color = StarWhite,
-              fontWeight = FontWeight.Bold,
-              fontSize = 17.sp
-            )
-          }
-        },
-        text = {
-          Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-          ) {
-            Text(
-              text = downloadStatusText,
-              color = if (downloadError != null) AlertRed else StarSilver,
-              fontSize = 13.sp
-            )
-
-            // Dynamic Gradient Progress Bar with percentage fill
-            Box(
-              modifier = Modifier
-                .fillMaxWidth()
-                .height(14.dp)
-                .clip(RoundedCornerShape(7.dp))
-                .background(CosmicDark)
-                .border(1.dp, NeonCyan.copy(alpha = 0.3f), RoundedCornerShape(7.dp))
-            ) {
-              Box(
-                modifier = Modifier
-                  .fillMaxWidth(fraction = (downloadProgressPercent / 100f).coerceIn(0f, 1f))
-                  .fillMaxHeight()
-                  .background(
-                    Brush.horizontalGradient(
-                      listOf(NeonCyan, GlowGreen)
-                    )
-                  )
-              )
-            }
-
-            // Percentage & Size indicator
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Text(
-                text = "$downloadProgressPercent%",
-                color = GlowGreen,
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-              )
-              Text(
-                text = if (downloadProgressBytes.second > 0) {
-                  "${AppUpdateManager.formatBytes(downloadProgressBytes.first)} / ${AppUpdateManager.formatBytes(downloadProgressBytes.second)}"
-                } else if (downloadProgressBytes.first > 0) {
-                  AppUpdateManager.formatBytes(downloadProgressBytes.first)
-                } else {
-                  "Загрузка..."
-                },
-                color = StarSilver,
-                fontSize = 12.sp
-              )
-            }
-
-            if (downloadError != null) {
-              Text(
-                text = downloadError ?: "",
-                color = AlertRed,
-                fontSize = 12.sp
-              )
-            }
-          }
-        },
-        confirmButton = {
-          if (downloadError != null || downloadProgressPercent == 100) {
-            Button(
-              onClick = { isDownloadingUpdate = false },
-              colors = ButtonDefaults.buttonColors(
-                containerColor = CosmicSurfaceVariant,
-                contentColor = NeonCyan
-              )
-            ) {
-              Text("Закрыть")
-            }
-          } else {
-            TextButton(onClick = { isDownloadingUpdate = false }) {
-              Text("Отмена", color = StarSilver)
-            }
-          }
-        }
-      )
-    }
-
-    // Exit Game Confirmation Dialog
     if (showExitDialog) {
       AlertDialog(
         onDismissRequest = { showExitDialog = false },
@@ -955,7 +774,9 @@ fun CosmicBattleScreen(
               containerColor = AlertRed,
               contentColor = StarWhite
             ),
-            modifier = Modifier.testTag("confirm_exit_button")
+            modifier = Modifier
+              .defaultMinSize(minHeight = 48.dp)
+              .testTag("confirm_exit_button")
           ) {
             Text(stringResource(R.string.exit_confirm))
           }
@@ -963,7 +784,9 @@ fun CosmicBattleScreen(
         dismissButton = {
           TextButton(
             onClick = { showExitDialog = false },
-            modifier = Modifier.testTag("cancel_exit_button")
+            modifier = Modifier
+              .defaultMinSize(minHeight = 48.dp)
+              .testTag("cancel_exit_button")
           ) {
             Text(stringResource(R.string.cancel), color = NeonCyan)
           }
@@ -971,7 +794,6 @@ fun CosmicBattleScreen(
       )
     }
 
-    // Clear Game Storage / Cache Confirmation Dialog
     if (showClearDataDialog) {
       AlertDialog(
         onDismissRequest = { showClearDataDialog = false },
@@ -1014,13 +836,17 @@ fun CosmicBattleScreen(
             colors = ButtonDefaults.buttonColors(
               containerColor = AlertRed,
               contentColor = StarWhite
-            )
+            ),
+            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
           ) {
             Text("Очистить и перезапустить")
           }
         },
         dismissButton = {
-          TextButton(onClick = { showClearDataDialog = false }) {
+          TextButton(
+            onClick = { showClearDataDialog = false },
+            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+          ) {
             Text("Отмена", color = NeonCyan)
           }
         }
@@ -1029,12 +855,6 @@ fun CosmicBattleScreen(
   }
 }
 
-/**
- * Injects non-intrusive runtime fixes:
- * 1. Makes the 5.5s intro skippable immediately upon tap.
- * 2. Neutralizes any Telegram API exceptions when running standalone on Android.
- * 3. Applies FPS limiter safely.
- */
 private fun injectPageEnhancements(
   view: WebView?,
   activity: Activity?,
@@ -1042,32 +862,15 @@ private fun injectPageEnhancements(
 ) {
   if (view == null) return
 
+  val engineMode = prefs.feGameXEngineMode
   val script = """
     (function() {
       try {
-        // 1. Make intro skippable on click or tap
-        var intro = document.getElementById('intro');
-        if (intro && !window.__introSkipAttached) {
-          window.__introSkipAttached = true;
-          var skipIntro = function() {
-            intro.classList.add('hidden');
-            if (typeof showMenu === 'function') {
-              showMenu();
-            }
-          };
-          intro.addEventListener('pointerdown', skipIntro, { once: true });
-          intro.addEventListener('click', skipIntro, { once: true });
-        }
-
-        // 2. Mock safe Telegram WebApp methods so it never throws on clicks outside Telegram
+        window.__cosmicFeGameXMode = '$engineMode';
         if (window.Telegram && window.Telegram.WebApp) {
           var twa = window.Telegram.WebApp;
-          if (!twa.requestFullscreen) {
-            twa.requestFullscreen = function() {};
-          }
-          if (!twa.exitFullscreen) {
-            twa.exitFullscreen = function() {};
-          }
+          if (!twa.requestFullscreen) twa.requestFullscreen = function() {};
+          if (!twa.exitFullscreen) twa.exitFullscreen = function() {};
         }
       } catch(e) {
         console.warn('[CosmicBattle] Injection error: ' + e);
@@ -1076,13 +879,14 @@ private fun injectPageEnhancements(
   """.trimIndent()
 
   view.evaluateJavascript(script, null)
+  prefs.syncFeGameXEngineToWebView(view)
   prefs.applyFpsSettings(activity, view)
+  prefs.applyLowGraphicsSettings(view)
 }
 
 @Composable
 private fun CosmicLoadingOverlay(
-  progress: Int,
-  onSkip: () -> Unit
+  progress: Int
 ) {
   val infiniteTransition = rememberInfiniteTransition(label = "rocket_pulse")
   val pulseScale by infiniteTransition.animateFloat(
@@ -1109,11 +913,7 @@ private fun CosmicLoadingOverlay(
       .fillMaxSize()
       .background(
         Brush.verticalGradient(
-          colors = listOf(
-            CosmicDark,
-            Color(0xFF0C1126),
-            CosmicDark
-          )
+          colors = listOf(CosmicDark, Color(0xFF0C1126), CosmicDark)
         )
       ),
     contentAlignment = Alignment.Center
@@ -1126,22 +926,20 @@ private fun CosmicLoadingOverlay(
       Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-          .size(90.dp)
+          .size(92.dp)
           .scale(pulseScale)
       ) {
-        // Glowing halo
         Box(
           modifier = Modifier
-            .size(80.dp)
+            .size(82.dp)
             .clip(CircleShape)
             .background(NeonCyan.copy(alpha = glowAlpha * 0.35f))
         )
-        // Icon container
         Surface(
           modifier = Modifier.size(68.dp),
           shape = CircleShape,
           color = CosmicSurfaceVariant,
-          border = androidx.compose.foundation.BorderStroke(2.dp, NeonCyan)
+          border = BorderStroke(2.dp, NeonCyan)
         ) {
           Box(contentAlignment = Alignment.Center) {
             Icon(
@@ -1160,19 +958,21 @@ private fun CosmicLoadingOverlay(
         text = "COSMIC BATTLE",
         fontSize = 22.sp,
         fontWeight = FontWeight.Black,
-        letterSpacing = 2.sp,
+        letterSpacing = 2.5.sp,
         color = StarWhite
       )
 
-      Spacer(modifier = Modifier.height(6.dp))
+      Spacer(modifier = Modifier.height(4.dp))
 
       Text(
-        text = "Синхронизация звёздного сектора...",
-        fontSize = 13.sp,
-        color = StarSilver
+        text = "SYNTEXHYPERSOFT ENGINE",
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 2.sp,
+        color = NeonPurple
       )
 
-      Spacer(modifier = Modifier.height(16.dp))
+      Spacer(modifier = Modifier.height(14.dp))
 
       CircularProgressIndicator(
         modifier = Modifier.size(28.dp),
@@ -1186,34 +986,254 @@ private fun CosmicLoadingOverlay(
           text = "$progress%",
           fontSize = 12.sp,
           fontWeight = FontWeight.SemiBold,
-          color = NeonPurple
+          color = NeonCyan
         )
       }
+    }
+  }
+}
 
-      Spacer(modifier = Modifier.height(24.dp))
+@Composable
+private fun FeastOptimizingOverlay(
+  engineMode: String
+) {
+  val infiniteTransition = rememberInfiniteTransition(label = "feast_optimizing")
 
-      // Instant Skip button so loading NEVER traps the user on any device
-      OutlinedButton(
-        onClick = onSkip,
-        shape = RoundedCornerShape(10.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan.copy(alpha = 0.5f)),
-        colors = ButtonDefaults.outlinedButtonColors(
-          contentColor = NeonCyan
+  // Discord-style update icon spin: smooth eased 360° flip with crisp pause settle
+  val iconRotation by infiniteTransition.animateFloat(
+    initialValue = 0f,
+    targetValue = 360f,
+    animationSpec = infiniteRepeatable(
+      animation = keyframes {
+        durationMillis = 1350
+        0f at 0 using CubicBezierEasing(0.68f, -0.20f, 0.32f, 1.20f)
+        360f at 980
+        360f at 1350
+      },
+      repeatMode = RepeatMode.Restart
+    ),
+    label = "discord_icon_spin"
+  )
+
+  val iconPulse by infiniteTransition.animateFloat(
+    initialValue = 0.96f,
+    targetValue = 1.05f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(675, easing = FastOutSlowInEasing),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "discord_icon_pulse"
+  )
+
+  val textShimmerOffset by infiniteTransition.animateFloat(
+    initialValue = -220f,
+    targetValue = 900f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(1500, easing = LinearEasing),
+      repeatMode = RepeatMode.Restart
+    ),
+    label = "feast_text_shimmer"
+  )
+
+  val textBreathAlpha by infiniteTransition.animateFloat(
+    initialValue = 0.72f,
+    targetValue = 1.0f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(750, easing = FastOutSlowInEasing),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "feast_text_alpha"
+  )
+
+  // Bottom bar: line flies left -> right in 1000ms, pauses 1000ms, then repeats
+  val barSweepProgress by infiniteTransition.animateFloat(
+    initialValue = 0f,
+    targetValue = 1f,
+    animationSpec = infiniteRepeatable(
+      animation = keyframes {
+        durationMillis = 2000
+        0f at 0 using FastOutSlowInEasing
+        1f at 1000
+        1f at 2000
+      },
+      repeatMode = RepeatMode.Restart
+    ),
+    label = "feast_bar_sweep"
+  )
+
+  val interactionSource = remember { MutableInteractionSource() }
+  val isGpuMode = GamePreferences.normalizeEngineMode(engineMode) != GamePreferences.ENGINE_CPU
+
+  Box(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(
+        Brush.verticalGradient(
+          colors = listOf(Color(0xFF060814), Color(0xFF0E1330), Color(0xFF050712))
+        )
+      )
+      .clickable(
+        interactionSource = interactionSource,
+        indication = null,
+        onClick = {}
+      )
+      .statusBarsPadding()
+      .navigationBarsPadding()
+      .padding(horizontal = 24.dp, vertical = 28.dp)
+      .testTag("feast_optimizing_overlay")
+  ) {
+    // Upper/Center-top: Spinning app icon (Discord checking-for-updates feel)
+    Column(
+      modifier = Modifier
+        .align(Alignment.Center)
+        .fillMaxWidth()
+        .padding(bottom = 56.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.Center
+    ) {
+      Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(132.dp)
+      ) {
+        Box(
+          modifier = Modifier
+            .size(126.dp)
+            .scale(iconPulse)
+            .clip(CircleShape)
+            .background(
+              Brush.radialGradient(
+                colors = listOf(
+                  NeonCyan.copy(alpha = 0.38f),
+                  NeonPurple.copy(alpha = 0.16f),
+                  Color.Transparent
+                )
+              )
+            )
+        )
+
+        Surface(
+          modifier = Modifier
+            .size(94.dp)
+            .graphicsLayer {
+              rotationZ = iconRotation
+              scaleX = iconPulse
+              scaleY = iconPulse
+            },
+          shape = CircleShape,
+          color = Color(0xFF0B0D1B),
+          border = BorderStroke(
+            width = 2.5.dp,
+            brush = Brush.linearGradient(colors = listOf(NeonCyan, NeonPurple))
+          ),
+          shadowElevation = 14.dp
+        ) {
+          Image(
+            painter = painterResource(id = R.drawable.img_cosmic_icon),
+            contentDescription = "Иконка приложения",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+              .fillMaxSize()
+              .clip(CircleShape)
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(34.dp))
+
+      // Middle: Animated text "Оптимизация игры с FeastOptimizingService..."
+      Text(
+        text = "Оптимизация игры с FeastOptimizingService...",
+        textAlign = TextAlign.Center,
+        style = TextStyle(
+          brush = Brush.linearGradient(
+            colors = listOf(
+              StarWhite.copy(alpha = textBreathAlpha),
+              NeonCyan,
+              Color(0xFFD8B4FE),
+              StarWhite.copy(alpha = textBreathAlpha)
+            ),
+            start = androidx.compose.ui.geometry.Offset(textShimmerOffset - 220f, 0f),
+            end = androidx.compose.ui.geometry.Offset(textShimmerOffset + 220f, 80f)
+          ),
+          fontSize = 18.sp,
+          fontWeight = FontWeight.ExtraBold,
+          letterSpacing = 0.6.sp,
+          lineHeight = 25.sp
         ),
-        modifier = Modifier.testTag("skip_loading_button")
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("feast_optimizing_text")
+      )
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = CosmicSurfaceVariant.copy(alpha = 0.65f),
+        border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.32f))
       ) {
         Text(
-          text = stringResource(R.string.skip_loading),
-          fontSize = 13.sp,
-          fontWeight = FontWeight.Medium
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Icon(
-          imageVector = Icons.Default.ArrowForward,
-          contentDescription = null,
-          modifier = Modifier.size(14.dp)
+          text = if (isGpuMode) {
+            "FeGameX GPU • Vulkan / Adreno / Mali Pipeline"
+          } else {
+            "FeGameX CPU • Software Rasterizer Pipeline"
+          },
+          fontSize = 11.sp,
+          fontWeight = FontWeight.SemiBold,
+          color = NeonCyan.copy(alpha = 0.9f),
+          modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
         )
       }
+    }
+
+    // Bottom: Animated progress bar (sweeps left->right in 1s, waits 1s, repeats)
+    Column(
+      modifier = Modifier
+        .align(Alignment.BottomCenter)
+        .fillMaxWidth()
+        .padding(bottom = 18.dp),
+      horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+      BoxWithConstraints(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(7.dp)
+          .clip(RoundedCornerShape(999.dp))
+          .background(Color(0xFF161D3A))
+          .border(1.dp, NeonCyan.copy(alpha = 0.25f), RoundedCornerShape(999.dp))
+      ) {
+        val barWidth = (maxWidth * 0.36f).coerceAtLeast(72.dp)
+        if (barSweepProgress < 0.995f) {
+          val offsetX = -barWidth + (maxWidth + barWidth) * barSweepProgress
+          Box(
+            modifier = Modifier
+              .offset(x = offsetX)
+              .width(barWidth)
+              .height(7.dp)
+              .clip(RoundedCornerShape(999.dp))
+              .background(
+                Brush.horizontalGradient(
+                  colors = listOf(
+                    Color.Transparent,
+                    NeonCyan,
+                    Color.White,
+                    NeonPurple,
+                    Color.Transparent
+                  )
+                )
+              )
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      Text(
+        text = "Подготовка шейдеров, спрайтов и ADPF-потоков",
+        fontSize = 11.sp,
+        color = StarSilver.copy(alpha = 0.78f),
+        textAlign = TextAlign.Center
+      )
     }
   }
 }
@@ -1233,7 +1253,7 @@ private fun CosmicErrorOverlay(
     Surface(
       shape = RoundedCornerShape(20.dp),
       color = CosmicSurface,
-      border = androidx.compose.foundation.BorderStroke(1.dp, AlertRed.copy(alpha = 0.5f)),
+      border = BorderStroke(1.dp, AlertRed.copy(alpha = 0.5f)),
       modifier = Modifier
         .fillMaxWidth()
         .padding(horizontal = 8.dp)
@@ -1297,6 +1317,7 @@ private fun CosmicErrorOverlay(
           shape = RoundedCornerShape(12.dp),
           modifier = Modifier
             .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
             .testTag("retry_connection_button")
         ) {
           Icon(
@@ -1319,39 +1340,48 @@ private fun CosmicErrorOverlay(
 @Composable
 private fun CosmicSettingsDialog(
   currentFps: Int,
+  feGameXEngineMode: String,
   isImmersive: Boolean,
   isKeepScreenOn: Boolean,
   isNotificationsEnabled: Boolean,
-  isAutoUpdateEnabled: Boolean,
-  availableUpdate: AppUpdateManager.UpdateInfo?,
-  isCheckingUpdate: Boolean,
-  updateCheckStatus: String?,
+  isLowGraphics: Boolean,
+  onSelectEngineMode: (String) -> Unit,
   onSelectFps: (Int) -> Unit,
   onToggleImmersive: () -> Unit,
   onToggleKeepScreenOn: () -> Unit,
   onToggleNotifications: () -> Unit,
-  onToggleAutoUpdate: () -> Unit,
+  onToggleLowGraphics: () -> Unit,
   onSendTestNotification: () -> Unit,
-  onCheckUpdates: () -> Unit,
-  onStartUpdate: (String) -> Unit,
   onReload: () -> Unit,
   onClearData: () -> Unit,
   onDismiss: () -> Unit
 ) {
   val context = LocalContext.current
   val graphicsInfo = remember { GraphicsEngineDetector.getGraphicsEngineInfo(context) }
+  val activeFlags = remember(feGameXEngineMode) {
+    GamePerformanceOptimizer.getActiveWebViewFlags(feGameXEngineMode)
+  }
 
   AlertDialog(
     onDismissRequest = onDismiss,
     title = {
       Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-          imageVector = Icons.Default.Settings,
-          contentDescription = null,
-          tint = NeonCyan,
-          modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
+        Surface(
+          shape = CircleShape,
+          color = NeonCyan.copy(alpha = 0.14f),
+          border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.45f)),
+          modifier = Modifier.size(38.dp)
+        ) {
+          Box(contentAlignment = Alignment.Center) {
+            Icon(
+              imageVector = Icons.Default.Settings,
+              contentDescription = null,
+              tint = NeonCyan,
+              modifier = Modifier.size(20.dp)
+            )
+          }
+        }
+        Spacer(modifier = Modifier.width(12.dp))
         Column {
           Text(
             text = "Настройки Cosmic Battle",
@@ -1360,7 +1390,7 @@ private fun CosmicSettingsDialog(
             fontSize = 17.sp
           )
           Text(
-            text = "Версия ${AndroidBridge.CURRENT_VERSION}",
+            text = "v${AndroidBridge.CURRENT_VERSION} • Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
             color = StarSilver,
             fontSize = 11.sp,
             fontWeight = FontWeight.Normal
@@ -1375,67 +1405,188 @@ private fun CosmicSettingsDialog(
           .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
       ) {
-        // --- Section: Active Graphics Engine Display Only ---
+        // --- Hardware / Vulkan Card ---
         Card(
-          shape = RoundedCornerShape(12.dp),
+          shape = RoundedCornerShape(14.dp),
           colors = CardDefaults.cardColors(
-            containerColor = CosmicSurfaceVariant.copy(alpha = 0.85f)
+            containerColor = CosmicSurfaceVariant.copy(alpha = 0.9f)
           ),
-          border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            NeonCyan.copy(alpha = 0.4f)
-          ),
+          border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.4f)),
           modifier = Modifier.fillMaxWidth()
         ) {
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+          Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
           ) {
             Row(
+              modifier = Modifier.fillMaxWidth(),
               verticalAlignment = Alignment.CenterVertically,
-              modifier = Modifier.weight(1f, fill = false)
+              horizontalArrangement = Arrangement.SpaceBetween
             ) {
-              Icon(
-                imageVector = Icons.Default.RocketLaunch,
-                contentDescription = null,
-                tint = NeonCyan,
-                modifier = Modifier.size(20.dp)
-              )
-              Spacer(modifier = Modifier.width(10.dp))
-              Column {
-                Text(
-                  text = "Активированный движок",
-                  color = StarSilver,
-                  fontSize = 11.sp
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f, fill = false)
+              ) {
+                Icon(
+                  imageVector = Icons.Default.RocketLaunch,
+                  contentDescription = null,
+                  tint = NeonCyan,
+                  modifier = Modifier.size(18.dp)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                  Text(
+                    text = "Графический адаптер",
+                    color = StarSilver,
+                    fontSize = 11.sp
+                  )
+                  Text(
+                    text = graphicsInfo.bestEngineName,
+                    color = GlowGreen,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                  )
+                }
+              }
+              Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = NeonCyan.copy(alpha = 0.16f),
+                border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.4f))
+              ) {
                 Text(
-                  text = graphicsInfo.bestEngineName,
-                  color = GlowGreen,
+                  text = graphicsInfo.engineType,
+                  color = NeonCyan,
+                  fontSize = 10.sp,
                   fontWeight = FontWeight.Bold,
-                  fontSize = 13.sp
+                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                 )
               }
             }
+            Text(
+              text = if (activeFlags.disableGpuRasterization) {
+                "Флаги WebView: --disable-gpu-rasterization (CPU Software)"
+              } else {
+                "Флаги WebView: --ignore-gpu-blocklist + Vulkan HW"
+              },
+              color = if (activeFlags.disableGpuRasterization) Color(0xFFFFD54F) else GlowGreen,
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Medium
+            )
+          }
+        }
+
+        // --- FeGameX Engine Mode Selector: ONLY CPU & GPU ---
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+              imageVector = Icons.Default.Tune,
+              contentDescription = null,
+              tint = NeonCyan,
+              modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "Движок FeGameX",
+              fontWeight = FontWeight.Bold,
+              fontSize = 14.sp,
+              color = StarWhite
+            )
+          }
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            val isCpu = feGameXEngineMode == GamePreferences.ENGINE_CPU
+            val isGpu = !isCpu
+
             Surface(
-              shape = RoundedCornerShape(10.dp),
-              color = NeonCyan.copy(alpha = 0.15f),
-              border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan.copy(alpha = 0.35f))
+              shape = RoundedCornerShape(12.dp),
+              color = if (isCpu) Color(0xFFFFB300).copy(alpha = 0.18f) else CosmicSurfaceVariant.copy(alpha = 0.6f),
+              border = BorderStroke(
+                width = if (isCpu) 1.5.dp else 1.dp,
+                color = if (isCpu) Color(0xFFFFB300) else StarSilver.copy(alpha = 0.25f)
+              ),
+              modifier = Modifier
+                .weight(1f)
+                .defaultMinSize(minHeight = 64.dp)
+                .clickable { onSelectEngineMode(GamePreferences.ENGINE_CPU) }
+                .testTag("engine_mode_cpu")
             ) {
-              Text(
-                text = graphicsInfo.engineType,
-                color = NeonCyan,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-              )
+              Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.Center
+              ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(
+                    imageVector = Icons.Default.Memory,
+                    contentDescription = null,
+                    tint = if (isCpu) Color(0xFFFFD54F) else StarSilver,
+                    modifier = Modifier.size(16.dp)
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text(
+                    text = "CPU",
+                    color = if (isCpu) Color(0xFFFFD54F) else StarWhite,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 13.sp
+                  )
+                }
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                  text = "disable-gpu-rasterization",
+                  color = StarSilver,
+                  fontSize = 10.sp
+                )
+              }
+            }
+
+            Surface(
+              shape = RoundedCornerShape(12.dp),
+              color = if (isGpu) GlowGreen.copy(alpha = 0.18f) else CosmicSurfaceVariant.copy(alpha = 0.6f),
+              border = BorderStroke(
+                width = if (isGpu) 1.5.dp else 1.dp,
+                color = if (isGpu) GlowGreen else StarSilver.copy(alpha = 0.25f)
+              ),
+              modifier = Modifier
+                .weight(1f)
+                .defaultMinSize(minHeight = 64.dp)
+                .clickable { onSelectEngineMode(GamePreferences.ENGINE_GPU) }
+                .testTag("engine_mode_gpu")
+            ) {
+              Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.Center
+              ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(
+                    imageVector = Icons.Default.RocketLaunch,
+                    contentDescription = null,
+                    tint = if (isGpu) GlowGreen else StarSilver,
+                    modifier = Modifier.size(16.dp)
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text(
+                    text = "GPU",
+                    color = if (isGpu) GlowGreen else StarWhite,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 13.sp
+                  )
+                }
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                  text = "ignore-gpu-blocklist + Vulkan",
+                  color = StarSilver,
+                  fontSize = 10.sp
+                )
+              }
             }
           }
         }
 
-        // --- Section: FPS Limit ---
+        HorizontalDivider(color = CosmicSurfaceVariant)
+
+        // --- FPS Limit ---
         Column {
           Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1451,14 +1602,14 @@ private fun CosmicSettingsDialog(
               )
               Spacer(modifier = Modifier.width(6.dp))
               Text(
-                text = "Ограничение FPS",
+                text = "Лимит FPS",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
                 color = StarWhite
               )
             }
             Text(
-              text = "$currentFps FPS",
+              text = if (currentFps == 0) "MAX" else "$currentFps FPS",
               color = NeonCyan,
               fontWeight = FontWeight.Bold,
               fontSize = 13.sp
@@ -1475,19 +1626,21 @@ private fun CosmicSettingsDialog(
             GamePreferences.FPS_OPTIONS.forEach { fps ->
               val isSelected = fps == currentFps
               Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(10.dp),
                 color = if (isSelected) NeonCyan else CosmicSurfaceVariant,
-                border = androidx.compose.foundation.BorderStroke(
+                border = BorderStroke(
                   1.dp,
                   if (isSelected) NeonCyan else StarSilver.copy(alpha = 0.2f)
                 ),
                 modifier = Modifier
+                  .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
                   .clickable { onSelectFps(fps) }
                   .testTag("fps_chip_$fps")
               ) {
                 Row(
-                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                  verticalAlignment = Alignment.CenterVertically
+                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.Center
                 ) {
                   if (isSelected) {
                     Icon(
@@ -1499,29 +1652,76 @@ private fun CosmicSettingsDialog(
                     Spacer(modifier = Modifier.width(4.dp))
                   }
                   Text(
-                    text = "$fps",
+                    text = if (fps == 0) "MAX" else "$fps",
                     color = if (isSelected) CosmicDark else StarWhite,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     fontSize = 12.sp
                   )
                 }
               }
             }
           }
-          Spacer(modifier = Modifier.height(4.dp))
-          Text(
-            text = "Ограничьте максимальный порог FPS в игре-Больше=плавнее,меньше-прерывисто",
-            fontSize = 11.sp,
-            color = StarSilver
+        }
+
+        HorizontalDivider(color = CosmicSurfaceVariant)
+
+        // --- Low Graphics ---
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 52.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(CosmicSurfaceVariant.copy(alpha = 0.5f))
+            .clickable { onToggleLowGraphics() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Speed,
+              contentDescription = null,
+              tint = GlowGreen,
+              modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+              Text(
+                text = "Низкая графика",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                color = StarWhite
+              )
+              Text(
+                text = "Отключает Blur и тени для максимального FPS",
+                fontSize = 11.sp,
+                color = StarSilver
+              )
+            }
+          }
+          Switch(
+            checked = isLowGraphics,
+            onCheckedChange = { onToggleLowGraphics() },
+            colors = SwitchDefaults.colors(
+              checkedThumbColor = StarWhite,
+              checkedTrackColor = GlowGreen,
+              uncheckedThumbColor = StarSilver,
+              uncheckedTrackColor = CosmicDark
+            )
           )
         }
 
         HorizontalDivider(color = CosmicSurfaceVariant)
 
-        // --- Section: Notifications ---
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // --- Notifications ---
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+              .fillMaxWidth()
+              .defaultMinSize(minHeight = 48.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
@@ -1564,12 +1764,11 @@ private fun CosmicSettingsDialog(
               onClick = onSendTestNotification,
               modifier = Modifier
                 .fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp)
                 .testTag("send_test_notification_button"),
-              shape = RoundedCornerShape(8.dp),
-              colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = NeonCyan
-              ),
-              border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan.copy(alpha = 0.4f))
+              shape = RoundedCornerShape(10.dp),
+              colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
+              border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.4f))
             ) {
               Icon(
                 imageVector = Icons.Default.NotificationsActive,
@@ -1584,10 +1783,12 @@ private fun CosmicSettingsDialog(
 
         HorizontalDivider(color = CosmicSurfaceVariant)
 
-        // --- Section: Screen & Immersive Toggles ---
+        // --- Screen & Immersive Toggles ---
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+              .fillMaxWidth()
+              .defaultMinSize(minHeight = 48.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
@@ -1616,7 +1817,9 @@ private fun CosmicSettingsDialog(
           }
 
           Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+              .fillMaxWidth()
+              .defaultMinSize(minHeight = 48.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
@@ -1647,167 +1850,7 @@ private fun CosmicSettingsDialog(
 
         HorizontalDivider(color = CosmicSurfaceVariant)
 
-        // --- Section: Game Updates ---
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(
-                imageVector = Icons.Default.RocketLaunch,
-                contentDescription = null,
-                tint = GlowGreen,
-                modifier = Modifier.size(18.dp)
-              )
-              Spacer(modifier = Modifier.width(6.dp))
-              Text(
-                text = "Обновление игры",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = StarWhite
-              )
-            }
-            Surface(
-              shape = RoundedCornerShape(8.dp),
-              color = GlowGreen.copy(alpha = 0.15f),
-              border = androidx.compose.foundation.BorderStroke(1.dp, GlowGreen.copy(alpha = 0.4f))
-            ) {
-              Text(
-                text = "v${AndroidBridge.CURRENT_VERSION}",
-                color = GlowGreen,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-              )
-            }
-          }
-
-          Text(
-            text = "Проверка обновлений и автоматическая загрузка новой версии игры",
-            fontSize = 11.sp,
-            color = StarSilver
-          )
-
-          // Background auto-update switch
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .clip(RoundedCornerShape(10.dp))
-              .background(CosmicSurfaceVariant.copy(alpha = 0.5f))
-              .clickable { onToggleAutoUpdate() }
-              .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text(
-                text = "Автообновление в фоне",
-                fontSize = 13.sp,
-                color = StarWhite,
-                fontWeight = FontWeight.Medium
-              )
-              Text(
-                text = "Автоматически скачивать новую версию при обнаружении",
-                fontSize = 10.sp,
-                color = StarSilver
-              )
-            }
-            Switch(
-              checked = isAutoUpdateEnabled,
-              onCheckedChange = { onToggleAutoUpdate() },
-              colors = SwitchDefaults.colors(
-                checkedThumbColor = StarWhite,
-                checkedTrackColor = GlowGreen,
-                uncheckedThumbColor = StarSilver,
-                uncheckedTrackColor = CosmicDark
-              )
-            )
-          }
-
-          if (availableUpdate != null) {
-            Card(
-              shape = RoundedCornerShape(10.dp),
-              colors = CardDefaults.cardColors(containerColor = GlowGreen.copy(alpha = 0.12f)),
-              border = androidx.compose.foundation.BorderStroke(1.dp, GlowGreen.copy(alpha = 0.5f)),
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-              ) {
-                Text(
-                  text = "🔥 Доступна версия ${availableUpdate.latestVersion}!",
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 13.sp,
-                  color = GlowGreen
-                )
-                if (availableUpdate.changelog.isNotBlank()) {
-                  Text(
-                    text = availableUpdate.changelog,
-                    fontSize = 11.sp,
-                    color = StarWhite
-                  )
-                }
-                Button(
-                  onClick = { onStartUpdate(availableUpdate.downloadUrl) },
-                  modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("update_now_button"),
-                  shape = RoundedCornerShape(8.dp),
-                  colors = ButtonDefaults.buttonColors(
-                    containerColor = GlowGreen,
-                    contentColor = CosmicDark
-                  )
-                ) {
-                  Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text("Обновить до ${availableUpdate.latestVersion}", fontWeight = FontWeight.Bold)
-                }
-              }
-            }
-          } else if (updateCheckStatus != null) {
-            Text(
-              text = updateCheckStatus,
-              fontSize = 12.sp,
-              color = if (updateCheckStatus.contains("последняя", ignoreCase = true) ||
-                updateCheckStatus.contains("актуальная", ignoreCase = true)
-              ) GlowGreen else StarSilver
-            )
-          }
-
-          Button(
-            onClick = onCheckUpdates,
-            enabled = !isCheckingUpdate,
-            modifier = Modifier
-              .fillMaxWidth()
-              .testTag("check_updates_button"),
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.buttonColors(
-              containerColor = NeonCyan.copy(alpha = 0.2f),
-              contentColor = NeonCyan
-            )
-          ) {
-            if (isCheckingUpdate) {
-              CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
-                color = NeonCyan,
-                strokeWidth = 2.dp
-              )
-              Spacer(modifier = Modifier.width(6.dp))
-              Text("Проверка...", fontSize = 12.sp)
-            } else {
-              Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-              Spacer(modifier = Modifier.width(4.dp))
-              Text("Проверить наличие обновлений", fontSize = 12.sp)
-            }
-          }
-        }
-
-        HorizontalDivider(color = CosmicSurfaceVariant)
-
-        // --- Section: Export / Share APK ---
+        // --- Export / Share APK ---
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Text(
             text = "Поделиться игрой / Экспорт APK",
@@ -1825,6 +1868,7 @@ private fun CosmicSettingsDialog(
             onClick = { ApkShareHelper.shareApk(context) },
             modifier = Modifier
               .fillMaxWidth()
+              .defaultMinSize(minHeight = 48.dp)
               .testTag("share_apk_button"),
             shape = RoundedCornerShape(10.dp),
             colors = ButtonDefaults.buttonColors(
@@ -1841,12 +1885,11 @@ private fun CosmicSettingsDialog(
             onClick = { ApkShareHelper.saveApkToDownloads(context) },
             modifier = Modifier
               .fillMaxWidth()
+              .defaultMinSize(minHeight = 48.dp)
               .testTag("download_apk_button"),
             shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
-              contentColor = NeonCyan
-            ),
-            border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan.copy(alpha = 0.6f))
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
+            border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.6f))
           ) {
             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
@@ -1856,11 +1899,13 @@ private fun CosmicSettingsDialog(
 
         HorizontalDivider(color = CosmicSurfaceVariant)
 
-        // --- Section: Maintenance Actions ---
+        // --- Maintenance Actions ---
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Button(
             onClick = onReload,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+              .fillMaxWidth()
+              .defaultMinSize(minHeight = 48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = ButtonDefaults.buttonColors(
               containerColor = CosmicSurfaceVariant,
@@ -1874,12 +1919,12 @@ private fun CosmicSettingsDialog(
 
           OutlinedButton(
             onClick = onClearData,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+              .fillMaxWidth()
+              .defaultMinSize(minHeight = 48.dp),
             shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
-              contentColor = AlertRed
-            ),
-            border = androidx.compose.foundation.BorderStroke(1.dp, AlertRed.copy(alpha = 0.5f))
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AlertRed),
+            border = BorderStroke(1.dp, AlertRed.copy(alpha = 0.5f))
           ) {
             Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(6.dp))
@@ -1890,7 +1935,10 @@ private fun CosmicSettingsDialog(
     },
     containerColor = CosmicSurface,
     confirmButton = {
-      TextButton(onClick = onDismiss) {
+      TextButton(
+        onClick = onDismiss,
+        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+      ) {
         Text("Закрыть", color = NeonCyan, fontWeight = FontWeight.Bold)
       }
     }

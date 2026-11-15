@@ -4,6 +4,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -28,6 +30,8 @@
         android:appCategory="game"
         android:isGame="true"
         android:largeHeap="true"
+        android:resizeableActivity="true"
+        android:enableOnBackInvokedCallback="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:hardwareAccelerated="true"
@@ -37,7 +41,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- Forced GPU Rendering & Skia / Vulkan Pipeline Optimization Flags -->
+        <!-- Android 12+ Official Game Mode API Configuration -->
+        <meta-data
+            android:name="android.game_mode_config"
+            android:resource="@xml/game_mode_config" />
+
+        <!-- Forced GPU Rendering & Skia / Vulkan / Multi-SoC Pipeline Optimization Flags -->
         <meta-data
             android:name="android.graphics.renderthread.prefer_vulkan"
             android:value="true" />
@@ -52,6 +61,12 @@
             android:value="true" />
         <meta-data
             android:name="com.arm.maligpu.performance_mode"
+            android:value="true" />
+        <meta-data
+            android:name="com.mediatek.powerhal.game_mode"
+            android:value="true" />
+        <meta-data
+            android:name="com.unisoc.game.performance"
             android:value="true" />
 
         <meta-data
@@ -89,7 +104,8 @@
             android:name=".MainActivity"
             android:exported="true"
             android:hardwareAccelerated="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:label="@string/app_name"
             android:theme="@style/Theme.MyApplication">

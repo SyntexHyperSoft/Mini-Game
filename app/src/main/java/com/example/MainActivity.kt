@@ -50,8 +50,14 @@ class MainActivity : ComponentActivity() {
     GamePerformanceOptimizer.applyGameOptimizations(this)
   }
 
+  override fun onPause() {
+    super.onPause()
+    GamePerformanceOptimizer.stopFrameHintLoop()
+  }
+
   override fun onStop() {
     super.onStop()
+    GamePerformanceOptimizer.stopFrameHintLoop()
     // When the app goes to background, schedule reminders that user hasn't played for a while
     NotificationHelper.scheduleBackgroundBattleReminders(this)
   }

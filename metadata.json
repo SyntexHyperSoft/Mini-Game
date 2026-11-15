@@ -1,6 +1,6 @@
 {
   "name": "Cosmic Battle",
-  "description": "Cosmic Battle v1.0.4 Android game with new abilities and enemies, active graphics engine detection, maximum CPU/GPU optimization, and in-app auto-updater with background downloads and progress bar.",
+  "description": "Cosmic Battle v1.0.5 with 2D/3D graphics mode, FeGameX rendering engine (CPU & GPU), Vulkan hardware acceleration, Android 8.1-17 support, device graphics load gauge, 15 unique bosses, 50 mob types, 20 upgradable abilities, 20 weapons with unique icons, Gold & Galaxy star enchantments, crystals currency, Wi-Fi LAN co-op mode, and ship progression.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
